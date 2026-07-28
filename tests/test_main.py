@@ -17,3 +17,8 @@ class DemoTest(unittest.TestCase):
         print(response.status_code)
         status = response.json().get("status")
         self.assertEqual(status, "ok")
+
+    def test_greet(self):
+        response = self.client.get(f"{BASE_URL}/greet")
+        status = response.json().get("status")
+        self.assertEqual(status, "Hello World")

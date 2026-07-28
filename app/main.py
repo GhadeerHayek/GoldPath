@@ -11,3 +11,7 @@ def send_hello():
 @app.get("/health")
 def health_service():
     return {"status": "ok"}
+
+@app.get("/greet")
+def greet_service():
+    return {"greet": "Hello World"}
