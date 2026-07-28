@@ -3,3 +3,4 @@
 # cache
 app/__pycache__/
 .idea/
+tests/__pycache__/
