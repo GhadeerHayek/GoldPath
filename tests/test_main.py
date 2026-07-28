@@ -1,6 +1,8 @@
 import unittest
-from app.main import app
+
 from fastapi.testclient import TestClient
+
+from app.main import app
 
 BASE_URL = "http://0.0.0.0:8000"
 
