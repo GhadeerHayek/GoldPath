@@ -1,1 +1,5 @@
 .env
+
+# cache
+app/__pycache__/
+.idea/
