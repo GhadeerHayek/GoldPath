@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# Read-only by default. Any job needing more must opt in explicitly, so a
+# compromised action cannot push code or comment as us.
+permissions:
+  contents: read
+
+# A new push to the same branch makes the in-flight run obsolete. Cancel it
+# instead of paying for a result nobody will read. `github.ref` keys this per
+# branch, so main and each PR queue independently.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # `--locked` fails if uv.lock is stale relative to pyproject.toml.
+      # `--frozen` would silently install an out-of-date lockfile instead.
+      # This is the check that keeps the lockfile honest.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # `--output-format=github` emits workflow annotations, so violations
+      # appear inline on the PR diff rather than only in the log.
+      - name: ruff check
+        run: uv run ruff check --output-format=github
+
+      - name: ruff format
+        run: uv run ruff format --check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: pytest
+        run: uv run pytest -q
