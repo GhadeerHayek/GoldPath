@@ -18,14 +18,19 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Third-party actions are pinned to a commit SHA, not a tag. A tag like `@v7`
+# is mutable: whoever controls that repository can change what executes here
+# without us touching anything. The trailing comment records the human-readable
+# version, and Dependabot bumps both together.
+
 jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -48,9 +53,9 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -60,3 +65,33 @@ jobs:
 
       - name: pytest
         run: uv run pytest -q
+
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Build only, never push. Proving the image still builds belongs on the
+      # PR; publishing it belongs after merge, in a job that has the registry
+      # credentials this one deliberately does not.
+      - name: docker build
+        run: docker build --tag goldpath:ci-${{ github.sha }} .
+
+      # A container that builds but exits on boot is not a passing build.
+      - name: smoke test the container
+        run: |
+          docker run --detach --name goldpath-smoke --publish 8000:8000 \
+            goldpath:ci-${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://localhost:8000/health; then
+              echo "healthy after ${i}s"
+              docker rm --force goldpath-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "container never became healthy; logs follow:"
+          docker logs goldpath-smoke
+          docker rm --force goldpath-smoke
+          exit 1
