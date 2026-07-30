@@ -1,6 +1,6 @@
 # Build stage: resolve dependencies from the same lockfile CI verifies, so the
 # deployed image cannot drift from what the tests ran against.
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 # Pin the installer. An unpinned `pip install uv` is a supply-chain hole in an
 # image we deploy to a real host.
@@ -18,7 +18,7 @@ RUN uv sync --locked --no-dev
 
 # Runtime stage: carry over only the virtualenv and the app, leaving uv, pip
 # caches, and build tooling out of the shipped image.
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/GhadeerHayek/GoldPath"
 LABEL org.opencontainers.image.description="GoldPath demo application"
