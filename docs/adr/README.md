@@ -42,7 +42,7 @@ A `Proposed` ADR that is blocking should say who it is blocked on.
 
 | ADR | Title | Area | Status |
 |---|---|---|---|
-| 001 | Agent runtime — stateless YAML-defined runner | tooling | Not yet written |
+| [001](ADR-001-agent-runtime-and-context.md) | Agent runtime and context strategy | tooling | **Accepted** — partially implemented |
 | [002](ADR-002-trust-boundaries.md) | Trust boundaries and the credential model | guardrails & security | **Accepted** — implemented and verified |
 | [003](ADR-003-model-routing.md) | Model routing for the coding agent | model routing | **Proposed** — blocked on Colin |
 | [004](ADR-004-verification-gates.md) | Verification gates, and who writes the tests | code review | **Accepted** — implementation deferred |

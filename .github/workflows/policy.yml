@@ -112,13 +112,18 @@ jobs:
 
           # The privilege surface: anything that defines what runs in CI, who
           # reviews it, what the scanners look for, or what ships in the image.
-          full_surface='^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|Dockerfile|\.dockerignore|docker-compose)'
+          # CLAUDE.md and .claude/ are in here for the reason ADR-001 gives:
+          # they are not documentation, they are instructions the agent obeys on
+          # every run. An agent that can edit its own context file or its own
+          # skills can edit its own instructions — and unlike an injection
+          # arriving through an issue, that edit persists into every future run.
+          full_surface='^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|CLAUDE\.md|\.claude/|Dockerfile|\.dockerignore|docker-compose)'
 
           # Dependabot's legitimate reach is version pins: base images and
           # action SHAs. It has no business rewriting who reviews code, what
           # the secret scanner looks for, or its own schedule — it never needs
           # to, so those stay blocked and a PR trying to is a real signal.
-          dependabot_surface='^(\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml)'
+          dependabot_surface='^(\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|CLAUDE\.md|\.claude/)'
 
           if [ "${dependabot}" = true ]; then
             surface="${dependabot_surface}"
