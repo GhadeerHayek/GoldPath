@@ -3,7 +3,8 @@
 - **Status:** Proposed — needs a decision from Colin
 - **Date:** 2026-07-30
 - **Supersedes:** nothing
-- **Related:** ADR-002 (agent execution surface)
+- **Area:** model routing
+- **Related:** ADR-001 (agent runtime), ADR-002 (trust boundaries)
 
 ## Context
 
@@ -11,7 +12,7 @@ The project brief specifies the build-phase toolchain directly:
 
 > For the build phase you'll run it against **KimiCoding-2.7** (and/or **GLM-5.2**) via OpenRouter (Anthropic-compatible endpoint) to keep experimentation cheap; once the pipeline works, we'll switch you to a live Claude subscription for hardening and the demo.
 
-We decided in ADR-002 to run the agent **fully inside GitHub Actions**, via
+We decided in ADR-001 to run the agent **fully inside GitHub Actions**, via
 `anthropics/claude-code-action`. That makes the model-routing question load-bearing:
 the agent's provider configuration is baked into a workflow that other things
 depend on, so getting it wrong is a rewrite rather than an edit.
