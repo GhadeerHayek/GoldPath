@@ -45,7 +45,7 @@ A `Proposed` ADR that is blocking should say who it is blocked on.
 | 001 | Agent runtime — stateless YAML-defined runner | tooling | Not yet written |
 | [002](ADR-002-trust-boundaries.md) | Trust boundaries and the credential model | guardrails & security | **Accepted** — implemented and verified |
 | [003](ADR-003-model-routing.md) | Model routing for the coding agent | model routing | **Proposed** — blocked on Colin |
-| 004 | Verification gates — what must pass, and why self-verification is insufficient | code review | Not yet written |
+| [004](ADR-004-verification-gates.md) | Verification gates, and who writes the tests | code review | **Accepted** — implementation deferred |
 | 005 | Merge policy and the trust gradient — what earns autonomous merge | process | Not yet written |
 | 006 | Trigger design — how an issue becomes an agent run | process | Not yet written |
 | 007 | Deployment and migration safety | deployment | Not yet written |
