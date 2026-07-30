@@ -65,11 +65,33 @@ jobs:
           # account on GitHub. `triage` is excluded deliberately: it can label
           # and close, but it cannot push.
           trusted=false
+          dependabot=false
           if [ "${PR_AUTHOR_TYPE}" = "User" ]; then
             permission="$(gh api "repos/${REPO}/collaborators/${PR_AUTHOR}/permission" \
               --jq '.permission' 2>/dev/null || echo "none")"
             case "${permission}" in
               admin|maintain|write) trusted=true ;;
+            esac
+          else
+            # Dependabot is a distinct trust tier, not a trusted human. Its
+            # INPUT is a package registry, not an issue body a stranger can
+            # write, and its diffs are mechanical version bumps — so it is not
+            # the threat the path rule below was written for. Blocking it
+            # outright would disconnect the CVE early-warning system from the
+            # two ecosystems most likely to carry one (the base image and the
+            # action pins), which is incoherent.
+            #
+            # This is a narrowed exemption, not a pass: the credential rule
+            # still applies, `human-approval` still requires a human to approve
+            # every Dependabot PR, and lint/test/image still gate it. As PR #3
+            # showed, `image` independently caught a breaking base-image bump.
+            #
+            # Matching on login is safe: a `[bot]` suffix cannot appear in a
+            # user account name, and GitHub App slugs are globally unique, so
+            # `dependabot[bot]` is not impersonable. Both the raw webhook form
+            # and the gh CLI's rendering are accepted.
+            case "${PR_AUTHOR}" in
+              'dependabot[bot]'|'dependabot-preview[bot]'|'app/dependabot') dependabot=true ;;
             esac
           fi
 
@@ -79,6 +101,9 @@ jobs:
           fi
 
           echo "Author ${PR_AUTHOR} (type ${PR_AUTHOR_TYPE}) is not a trusted human. Applying restrictions."
+          if [ "${dependabot}" = true ]; then
+            echo "Recognised as Dependabot — narrowed privilege surface applies."
+          fi
 
           gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
             --jq '.[].filename' > changed_files.txt
@@ -87,11 +112,27 @@ jobs:
 
           # The privilege surface: anything that defines what runs in CI, who
           # reviews it, what the scanners look for, or what ships in the image.
-          if grep -Eq '^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|Dockerfile|\.dockerignore|docker-compose)' changed_files.txt; then
-            echo "::error::This pull request modifies the privilege surface (CI, review routing, scanner config, or the image) and was not opened by a write-access human."
-            echo "An agent that can edit the workflows can edit the workflows that gate it."
+          full_surface='^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|Dockerfile|\.dockerignore|docker-compose)'
+
+          # Dependabot's legitimate reach is version pins: base images and
+          # action SHAs. It has no business rewriting who reviews code, what
+          # the secret scanner looks for, or its own schedule — it never needs
+          # to, so those stay blocked and a PR trying to is a real signal.
+          dependabot_surface='^(\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml)'
+
+          if [ "${dependabot}" = true ]; then
+            surface="${dependabot_surface}"
+            reason="Dependabot may update version pins, but not review routing, scanner config, or its own schedule."
+          else
+            surface="${full_surface}"
+            reason="An agent that can edit the workflows can edit the workflows that gate it."
+          fi
+
+          if grep -Eq "${surface}" changed_files.txt; then
+            echo "::error::This pull request modifies a protected path and was not opened by a write-access human."
+            echo "${reason}"
             echo "If this change is wanted, a human should author it directly."
-            grep -E '^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|Dockerfile|\.dockerignore|docker-compose)' changed_files.txt | sed 's/^/  BLOCKED: /'
+            grep -E "${surface}" changed_files.txt | sed 's/^/  BLOCKED: /'
             exit 1
           fi
 
