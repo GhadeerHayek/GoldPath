@@ -1,8 +1,12 @@
 .env
 .git
 .github
-# cache
-app/__pycache__/
+# A host virtualenv copied into a Linux image is broken and huge.
+.venv
 .idea/
-tests/__pycache__/
+# cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
 /tests

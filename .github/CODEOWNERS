@@ -1,0 +1,16 @@
+# Every path has an owner, so review requests route automatically rather than
+# depending on someone noticing the PR.
+* @GhadeerHayek
+
+# The pipeline is the product here. Changes to CI, security scanning, agent
+# configuration, or deployment carry more risk than application code, and are
+# called out so that stays visible as the repo grows.
+/.github/ @GhadeerHayek
+/Dockerfile @GhadeerHayek
+
+# Note: the ruleset on `main` deliberately does NOT require code-owner
+# approval. GitHub does not let you approve your own pull request, and this is
+# a single-maintainer repository — requiring it would make every PR
+# unmergeable, including this file's own. CODEOWNERS earns its keep here by
+# routing review on agent-authored PRs, which are opened by a bot and so *can*
+# be approved by the owner.
