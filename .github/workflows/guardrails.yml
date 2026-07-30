@@ -65,21 +65,37 @@ jobs:
           cd "${workdir}"
           git init --quiet
 
+          # Draw one pool of randomness up front rather than piping /dev/urandom
+          # into `head`. Under `set -o pipefail`, `head` closing the pipe early
+          # kills `tr` with SIGPIPE and fails the whole script before the
+          # scanner ever runs. Here every command in the pipeline consumes its
+          # input to completion, so nothing gets a broken pipe.
+          pool="$(head -c 512 /dev/urandom | base64 | LC_ALL=C tr -dc 'A-Za-z0-9')"
+
           # Generated, never committed to GoldPath. Deliberately NOT the AWS
           # documentation key (AKIAIOSFODNN7EXAMPLE) — gitleaks allowlists
           # that, so a test using it passes while proving nothing.
-          key_id="AKIA$(LC_ALL=C tr -dc 'A-Z0-9' </dev/urandom | head -c 16)"
-          secret="$(LC_ALL=C tr -dc 'A-Za-z0-9/+' </dev/urandom | head -c 40)"
-          printf 'AWS_ACCESS_KEY_ID = "%s"\nAWS_SECRET_ACCESS_KEY = "%s"\n' \
-            "${key_id}" "${secret}" > config.py
+          aws_id="AKIA$(printf '%s' "${pool:0:16}" | LC_ALL=C tr 'a-z' 'A-Z')"
+          aws_secret="${pool:16:40}"
+          # A PAT-shaped token as well: gitleaks matches this by regex rather
+          # than by entropy score, so the assertion does not depend on a random
+          # string happening to clear an entropy threshold.
+          gh_pat="ghp_${pool:56:36}"
+
+          {
+            printf 'AWS_ACCESS_KEY_ID = "%s"\n' "${aws_id}"
+            printf 'AWS_SECRET_ACCESS_KEY = "%s"\n' "${aws_secret}"
+            printf 'GITHUB_TOKEN = "%s"\n' "${gh_pat}"
+          } > config.py
 
           git add -A
           git -c user.email=guardrail@example.com -c user.name=guardrail \
             commit --quiet --message "planted credential"
 
-          if gitleaks git --redact "${workdir}" >/dev/null 2>&1; then
+          if gitleaks git --redact "${workdir}" > gitleaks.log 2>&1; then
             echo "::error::GUARDRAIL FAILED — gitleaks exited 0 on a planted credential."
             echo "The 'secrets' job in security.yml is not actually blocking anything."
+            cat gitleaks.log
             exit 1
           fi
           echo "gitleaks correctly exited non-zero on a planted credential."
@@ -113,9 +129,10 @@ jobs:
                --config p/security-audit \
                --metrics=off \
                --error \
-               "${workdir}" >/dev/null 2>&1; then
+               "${workdir}" > semgrep.log 2>&1; then
             echo "::error::GUARDRAIL FAILED — semgrep exited 0 on shell=True and eval()."
             echo "The 'sast' job in security.yml is not actually blocking anything."
+            cat semgrep.log
             exit 1
           fi
           echo "semgrep correctly exited non-zero on an injection sink."
@@ -136,9 +153,10 @@ jobs:
 
           if uvx --from "pip-audit==${PIP_AUDIT_VERSION}" pip-audit \
                --requirement "${workdir}/requirements.txt" \
-               --no-deps >/dev/null 2>&1; then
+               --no-deps > pip-audit.log 2>&1; then
             echo "::error::GUARDRAIL FAILED — pip-audit exited 0 on requests==2.19.1 (CVE-2018-18074)."
             echo "The 'deps' job in security.yml is not actually blocking anything."
+            cat pip-audit.log
             exit 1
           fi
           echo "pip-audit correctly exited non-zero on a known-vulnerable package."
