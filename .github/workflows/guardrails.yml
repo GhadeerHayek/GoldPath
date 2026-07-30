@@ -105,6 +105,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          # This job never checks the repo out — it only needs uv to fetch a
+          # scanner via uvx. Without these, setup-uv warns about an
+          # uncacheable dependency glob and an empty workdir on every run.
+          enable-cache: false
+          ignore-empty-workdir: true
 
       - name: Assert semgrep fails on a known-vulnerable pattern
         run: |
@@ -142,6 +148,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          # This job never checks the repo out — it only needs uv to fetch a
+          # scanner via uvx. Without these, setup-uv warns about an
+          # uncacheable dependency glob and an empty workdir on every run.
+          enable-cache: false
+          ignore-empty-workdir: true
 
       - name: Assert pip-audit fails on a package with a known CVE
         run: |
