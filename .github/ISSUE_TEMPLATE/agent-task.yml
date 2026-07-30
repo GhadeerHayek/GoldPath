@@ -1,0 +1,89 @@
+name: Agent task
+description: A change scoped tightly enough for the coding agent to finish unattended
+title: "<imperative summary, e.g. Return 404 for a missing note id>"
+labels: ["agent-ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The merge gate on this repository is deterministic. If "done" cannot be
+        expressed as something CI can check, the agent cannot merge it — and
+        probably should not be attempting it.
+
+        An agent does not ask a clarifying question. It fills gaps in the spec
+        with guesses, and a guess that passes CI is worse than a failure,
+        because it merges.
+
+        Full guidance: [`docs/agent-task-template.md`](../blob/main/docs/agent-task-template.md)
+
+        **Do not paste credentials, tokens, or production data below.** The
+        agent reads this text, and so can anyone who can see this repository.
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is observably true when this is finished? Write a state of the world, not a task list.
+      placeholder: |
+        GET /notes/{id} returns 404 with {"detail": "Not found"} for an id that
+        does not exist, instead of raising a 500.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Each line must be checkable by a machine or a one-line command. A criterion needing judgement is a design decision — it belongs in an ADR before it reaches an agent.
+      placeholder: |
+        - [ ] Requesting a non-existent note id returns HTTP 404
+        - [ ] The response body is {"detail": "Not found"}
+        - [ ] An existing note id still returns 200 with the note
+    validations:
+      required: true
+
+  - type: textarea
+    id: tests
+    attributes:
+      label: Tests
+      description: Name the test that proves this. "Add tests" is not a specification. An agent task with no test requirement means nothing will detect a regression.
+      placeholder: |
+        Add: test_get_note_missing_id_returns_404 in tests/test_notes.py
+        Must still pass: tests/test_main.py::DemoTest::test_health
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Bounded scope keeps the diff reviewable and stops the agent refactoring adjacent code it happens to dislike. State the out-of-scope items even when they feel obvious.
+      placeholder: |
+        In scope: app/routers/notes.py, tests/test_notes.py
+        Out of scope: the response schema, the database layer, any other endpoint
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: autonomy
+    attributes:
+      label: Autonomy — tick only if every condition holds
+      description: These decide whether the PR may merge on green without a human. If any is false, leave them all unticked; the task is still fine for the agent, it just gets a human merge.
+      options:
+        - label: No database schema change or migration
+        - label: No new or upgraded dependency
+        - label: Does not touch CI, review routing, scanner config, or the image
+        - label: Confined to a single module
+        - label: No change to a public API contract
+        - label: Success is checkable by an existing or specified test
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Links to the constraining ADR, related issues, the failing log or reproduction.
+      placeholder: |
+        Constrained by: docs/adr/ADR-007-migrations-and-test-fidelity.md
+        Reproduction: <link to the failing run>
+    validations:
+      required: false
