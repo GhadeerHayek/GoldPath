@@ -1,0 +1,174 @@
+name: Policy
+
+# Guards against the escalation path that makes an autonomous coding agent
+# dangerous: the agent writes a workflow, that workflow runs with more
+# privilege than the agent had, and it reaches the deployment credentials.
+#
+# The trust boundary is authorship. A pull request opened by a human with write
+# access carries that human's judgement. A pull request opened by a bot carries
+# whatever was in the issue that triggered it — and an issue body is text any
+# stranger on the internet can write.
+#
+# Both jobs here are DETERMINISTIC. The agentic reviewer added later reads the
+# same attacker-influenced text the agent did and can be argued out of a
+# finding; it is defence in depth, never the gate. Anything we would be upset
+# to see bypassed lives in this file.
+
+on:
+  pull_request:
+    branches: ["main"]
+  # A review changes the answer for `human-approval`, so the check has to
+  # re-evaluate when one arrives. Note this is `pull_request_review`, not
+  # `pull_request_target` — we never use the latter, which runs with a write
+  # token in the base-repo context against branch-controlled code.
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  privileged-changes:
+    name: privileged-changes
+    runs-on: ubuntu-latest
+    steps:
+      # Nothing is checked out. This job reads pull request metadata through
+      # the API and never executes, imports, or builds the code under review.
+      - name: Block bot-authored changes to the privilege surface
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Event data is passed through the environment, never interpolated
+          # into the script body. `${{ }}` substitution happens before bash
+          # parses the line, so a branch or title containing shell
+          # metacharacters would otherwise execute here.
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          set -euo pipefail
+
+          # Trust is derived, not hardcoded: a real user account (not a Bot)
+          # holding write access or better. Deriving it means this workflow
+          # ports to MindVault without editing a username into it.
+          #
+          # TRAP: on a public repository this endpoint returns "read" for every
+          # GitHub user — a stranger with no relationship to the repo resolves
+          # successfully, it does not 404. So the test must be an allowlist of
+          # privileged levels (admin/maintain/write). Written as `!= "none"` or
+          # as "did the call succeed", this check would be bypassable by any
+          # account on GitHub. `triage` is excluded deliberately: it can label
+          # and close, but it cannot push.
+          trusted=false
+          if [ "${PR_AUTHOR_TYPE}" = "User" ]; then
+            permission="$(gh api "repos/${REPO}/collaborators/${PR_AUTHOR}/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")"
+            case "${permission}" in
+              admin|maintain|write) trusted=true ;;
+            esac
+          fi
+
+          if [ "${trusted}" = true ]; then
+            echo "::notice::Author ${PR_AUTHOR} is a write-access human — privilege surface changes permitted."
+            exit 0
+          fi
+
+          echo "Author ${PR_AUTHOR} (type ${PR_AUTHOR_TYPE}) is not a trusted human. Applying restrictions."
+
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
+            --jq '.[].filename' > changed_files.txt
+          echo "Files changed:"
+          sed 's/^/  /' changed_files.txt
+
+          # The privilege surface: anything that defines what runs in CI, who
+          # reviews it, what the scanners look for, or what ships in the image.
+          if grep -Eq '^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|Dockerfile|\.dockerignore|docker-compose)' changed_files.txt; then
+            echo "::error::This pull request modifies the privilege surface (CI, review routing, scanner config, or the image) and was not opened by a write-access human."
+            echo "An agent that can edit the workflows can edit the workflows that gate it."
+            echo "If this change is wanted, a human should author it directly."
+            grep -E '^(\.github/workflows/|\.github/actions/|\.github/CODEOWNERS|\.github/dependabot\.yml|\.gitleaks\.toml|Dockerfile|\.dockerignore|docker-compose)' changed_files.txt | sed 's/^/  BLOCKED: /'
+            exit 1
+          fi
+
+          # Added lines only. A diff that *removes* a secret reference is fine;
+          # one that introduces one is the agent reaching for credentials.
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate \
+            --jq '.[] | select(.patch != null) | .patch' \
+            | grep -E '^\+' | grep -Ev '^\+\+\+' > added_lines.txt || true
+
+          if grep -Eq 'secrets\.[A-Za-z_]|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|OPENROUTER_API_KEY|AWS_SECRET_ACCESS_KEY|SSH_PRIVATE_KEY|VPS_SSH_KEY|GITHUB_TOKEN' added_lines.txt; then
+            echo "::error::This pull request introduces a credential reference and was not opened by a write-access human."
+            grep -En 'secrets\.[A-Za-z_]|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|OPENROUTER_API_KEY|AWS_SECRET_ACCESS_KEY|SSH_PRIVATE_KEY|VPS_SSH_KEY|GITHUB_TOKEN' added_lines.txt | sed 's/^/  FLAGGED: /'
+            exit 1
+          fi
+
+          echo "No privilege-surface or credential changes. Passing."
+
+  human-approval:
+    name: human-approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a human review on bot-authored pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          set -euo pipefail
+
+          # A human author auto-passes, and that is not laziness — GitHub does
+          # not permit approving your own pull request, so on a
+          # single-maintainer repository requiring approval here would make
+          # every human PR permanently unmergeable, including the one that
+          # removes the requirement.
+          #
+          # A bot author is the opposite case: nobody has exercised judgement
+          # yet, and the maintainer *can* approve because they did not write it.
+          # That asymmetry is what makes a review requirement meaningful here
+          # instead of circular.
+          if [ "${PR_AUTHOR_TYPE}" = "User" ]; then
+            permission="$(gh api "repos/${REPO}/collaborators/${PR_AUTHOR}/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")"
+            case "${permission}" in
+              admin|maintain|write)
+                echo "::notice::Authored by write-access human ${PR_AUTHOR}; self-approval is not possible, so no review is required."
+                exit 0
+                ;;
+            esac
+          fi
+
+          approvals="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --paginate \
+            --jq '[.[] | select(.state == "APPROVED") | .user.login] | unique | .[]' || true)"
+
+          if [ -z "${approvals}" ]; then
+            echo "::error::Pull request by ${PR_AUTHOR} (type ${PR_AUTHOR_TYPE}) needs an approving review from a write-access human before it can merge."
+            exit 1
+          fi
+
+          # An approval only counts from someone who could have written the
+          # change themselves. On a public repo anyone can submit a review, and
+          # every user resolves to at least "read" here (see the trap noted in
+          # privileged-changes), so this must allowlist privileged levels
+          # rather than merely check that the reviewer exists.
+          while read -r reviewer; do
+            [ -n "${reviewer}" ] || continue
+            permission="$(gh api "repos/${REPO}/collaborators/${reviewer}/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")"
+            case "${permission}" in
+              admin|maintain|write)
+                echo "Approved by ${reviewer} (${permission})."
+                exit 0
+                ;;
+            esac
+            echo "Ignoring approval from ${reviewer} (permission: ${permission})."
+          done <<< "${approvals}"
+
+          echo "::error::Approvals exist but none are from a write-access human."
+          exit 1
