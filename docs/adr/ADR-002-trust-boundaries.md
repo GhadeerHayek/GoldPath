@@ -101,6 +101,75 @@ and exclude `triage`, which can label but not push.
 **A required status check whose workflow is absent from the default branch
 blocks every pull request permanently.** Land the workflow, then require it.
 
+## Repository visibility, and what changes when it moves
+
+GoldPath is **public** today, for a mundane reason: branch protection and
+rulesets are not available on a free personal *private* repository, and rulesets
+are load-bearing here. That is expected to change — either when GitHub Pro
+arrives via the Student Developer Pack, or when this work moves into the
+`Thinking-of-U` organisation. So visibility is a temporary condition, and the
+design should not depend on it.
+
+### What being public actually costs, in plain terms
+
+- **Everything is readable by anyone, forever — including git history.** A secret
+  that is ever committed is compromised the moment it lands. Deleting it in a
+  later commit does not undo that: anyone could already have cloned or cached the
+  repository, and the old object stays reachable. **Rotation is the only remedy**,
+  which is why push protection and the `secrets` job exist rather than a
+  "remember not to commit keys" convention.
+- **Workflow logs are public.** Anything CI prints, the world can read. This is
+  the reason gitleaks runs with `--redact`: an unredacted finding would broadcast
+  the credential to everyone while reporting that it leaked.
+- **Strangers can fork and open pull requests**, which runs CI. They cannot do
+  harm — pull requests from forks get a read-only token, and `privileged-changes`
+  blocks any non-trusted author from the privilege surface — but they can consume
+  Actions minutes. Nuisance, not exposure.
+- **Weaknesses are visible before they are fixed.** Anyone can read the pipeline
+  and look for a gap. This cuts both ways: it is also why the design has to be
+  sound rather than merely obscure.
+- **The permission endpoint returns `read` for every GitHub user**, as noted
+  above, so authorisation cannot be inferred from a successful lookup.
+
+### What changes on a private repository (GitHub Pro)
+
+| | Effect |
+|---|---|
+| Rulesets and branch protection | **Available** — this is the reason to move |
+| Fork pull requests from strangers | **Gone** |
+| Workflow logs | **No longer public** |
+| Permission endpoint | Stops returning `read` for strangers, so the authorisation check becomes *stricter on its own* |
+| Secret scanning and push protection | **Lost** — see below |
+
+That last row is the one that surprises people. **Secret scanning and push
+protection are free for public repositories and paid everywhere else** — private
+and internal repositories need a GitHub Secret Protection licence. So making the
+repository private *removes* a security control rather than adding one.
+
+The mitigation already exists and is not an accident: **the `secrets` job runs
+gitleaks in CI over full history regardless of visibility or licensing.** GitHub's
+native scanning is a second layer, not the layer. Losing it degrades
+defence-in-depth without opening a hole.
+
+### What changes on moving into the organisation
+
+- **Rulesets and secrets need Colin.** Write access is not enough to configure
+  either, so the migration is not self-service.
+- **Secret Protection availability depends on the organisation's plan** rather
+  than on us.
+- **`gitleaks-action` would demand a licence key** for an org-owned repository.
+  Already the reason this pipeline uses the MIT binary with a verified checksum
+  instead — a choice made for portability that now also survives the visibility
+  change.
+
+### The design consequence
+
+Every control that carries weight here is **visibility-independent**: gitleaks
+runs in CI either way, the permission check allowlists privileged levels rather
+than testing whether a lookup succeeded, and the ruleset is ours regardless of
+who owns the repository. That is deliberate, and it is what makes the eventual
+move to Pro or to the organisation a settings change rather than a redesign.
+
 ## Trust tiers
 
 Authorship is the boundary, and it has three levels rather than two:
@@ -150,7 +219,9 @@ Naming these is stronger than hiding them.
    text the agent did. It is defence in depth and is never a required check.
 4. **Secret-scanning validity checks are unavailable** — they need paid GitHub
    Secret Protection. So we learn that a credential leaked, but not whether it
-   is still live. Raised with Colin.
+   is still live. Raised with Colin. Note the visibility interaction above: the
+   base scanning we *do* have is free only because the repository is public, and
+   going private without a licence removes it.
 5. **A compromised agent can create branch and PR noise** with its scoped token.
    Annoying, not dangerous; nothing merges without passing policy.
 
