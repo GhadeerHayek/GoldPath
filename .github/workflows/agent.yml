@@ -17,9 +17,18 @@ name: Agent
 # authorised would control the authorisation. Splitting the token out is what
 # makes the label a control rather than a decoration.
 
+# Explicit invocation only. A run starts when something calls for one — from the
+# CLI, from the Actions tab, or over the API:
+#
+#   gh workflow run agent.yml -f issue=GOLD-1
+#   POST /repos/{owner}/{repo}/actions/workflows/agent.yml/dispatches
+#
+# What decides to make that call is deliberately left open. A schedule, a Linear
+# webhook through a relay, or a person are all just callers of the same endpoint,
+# so choosing between them later changes nothing in this file. Leaving it out for
+# now also means no run happens that nobody asked for — which is the right
+# default while the agent's behaviour is still being characterised.
 on:
-  # The demo path, the way to re-run a single issue on purpose, and the harness
-  # for the model comparison: same issue, same gates, one variable changed.
   workflow_dispatch:
     inputs:
       issue:
@@ -34,12 +43,6 @@ on:
         description: "Experiment arm tag (e.g. kimi, claude). Suffixes the branch so arms do not collide."
         required: false
         type: string
-
-  # The unattended path. Polling rather than a Linear webhook: a webhook needs an
-  # internet-facing listener holding a GitHub credential, which is a new trust
-  # domain to secure and host. Nothing to deploy is worth an hour of latency here.
-  schedule:
-    - cron: "0 * * * *"
 
 permissions:
   contents: read
@@ -82,9 +85,9 @@ jobs:
 
           # The `agent-ready` label is the authorisation and is filtered server
           # side. Status is filtered below in jq rather than here, because the
-          # two entry points need different rules: the unattended poll takes
-          # only `Todo`, while an explicit dispatch takes the issue whatever
-          # state it is in — a human naming an issue has authorised that run
+          # two entry points need different rules: a run with no issue named
+          # sweeps for the oldest `Todo`, while a run naming an issue takes it
+          # whatever state it is in — naming an issue authorises that run
           # directly, and forcing a status reset between experiment runs would
           # be friction with no security value.
           query='query($team: ID!) {
@@ -118,9 +121,9 @@ jobs:
               '[.data.issues.nodes[] | select(.identifier == $id)][0] // empty' \
               response.json > issue.json
           else
-            # Unattended poll: Todo only. Moving the issue to In Progress at the
-            # end of this job is what stops the next hourly poll picking it up
-            # again — the status IS the dedupe key, so there is no separate lock.
+            # Sweep: Todo only. Moving the issue to In Progress at the end of
+            # this job is what stops a later sweep picking it up again — the
+            # status IS the dedupe key, so there is no separate lock to leak.
             jq '[.data.issues.nodes[] | select(.state.name == "Todo")][0] // empty' \
               response.json > issue.json
           fi
@@ -159,9 +162,9 @@ jobs:
             echo "${delim}"
           } >> "$GITHUB_OUTPUT"
 
-      # Only the unattended path claims. A dispatched run is already authorised
-      # by the human who dispatched it, and leaving the status alone is what
-      # makes the same issue repeatable across experiment arms.
+      # Only a sweep claims. A run that named its issue was already authorised
+      # by whoever named it, and leaving the status alone is what makes the same
+      # issue repeatable across experiment arms.
       - name: Claim the issue
         if: steps.pick.outputs.found == 'true' && github.event.inputs.issue == ''
         env:
@@ -195,7 +198,7 @@ jobs:
             --header "Content-Type: application/json" \
             --data @claim.json "${LINEAR_API}" | jq -e '.data.issueUpdate.success' >/dev/null
 
-          echo "::notice::Moved to In Progress — the hourly poll will not pick it up again."
+          echo "::notice::Moved to In Progress — a later sweep will not pick it up again."
 
   # ------------------------------------------------------------- implement ---
   # Execution plane. Holds the model key and, only after the agent has exited,
@@ -480,7 +483,7 @@ jobs:
           if [ "${RESULT}" = "success" ] && [ -n "${PR_URL}" ]; then
             body="$(printf 'Agent run finished. Pull request: %s\n\nWaiting on CI and a human review — this issue is not done until that pull request merges.' "${PR_URL}")"
           else
-            body="$(printf 'Agent run **failed** (%s). No pull request was opened.\n\nRun log: %s\n\nThis issue is still In Progress and the hourly poll will not retry it. Move it back to Todo to try again.' "${RESULT}" "${RUN_URL}")"
+            body="$(printf 'Agent run **failed** (%s). No pull request was opened.\n\nRun log: %s\n\nThis issue is still In Progress, so nothing will retry it on its own. Move it back to Todo, or start a run naming it directly.' "${RESULT}" "${RUN_URL}")"
           fi
 
           mutation='mutation($id: String!, $body: String!) {
