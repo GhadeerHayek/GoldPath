@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Demo application proving the GoldPath agentic delivery pipeline."
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]>=0.140.0",
+    "fastapi[standard]>=0.141.1",
 ]
 
 [dependency-groups]
